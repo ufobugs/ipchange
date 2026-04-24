@@ -1,74 +1,76 @@
-# IP 变更监控工具
+# 公网 IP 变更监控
 
-这是一个使用 Python 标准库实现的公网 IP 监控脚本。程序会定时访问一个公网 IP 查询接口，对比当前 IP 和上一次记录的 IP；如果检测到变化，就通过 SMTP 发送邮件通知。
+这是一个轻量级 Python 脚本，用于定时检查本机出口公网 IPv4 和 IPv6。当检测到地址变化时，脚本会通过 SMTP 发送邮件通知，并把最新地址记录到本地状态文件中。
 
-项目当前非常轻量，核心逻辑全部集中在 `ip_monitor.py` 中，适合直接运行，也便于后续打包成可执行文件使用。
+项目只使用 Python 标准库，不需要安装第三方依赖。
 
-## 功能特点
+## 功能
 
-- 定时轮询公网 IP
-- 首次运行只记录 IP，不发送通知
-- 检测到 IP 变化时自动发送邮件
-- 使用本地文件保存上一次 IP
-- 仅依赖 Python 标准库，无需安装第三方包
+- 分别获取公网 IPv4 和 IPv6
+- 分别记录上次检测到的 IPv4 和 IPv6
+- 首次运行只写入当前地址，不发送通知
+- 地址变化后发送邮件通知
+- IPv4 或 IPv6 某一项获取失败时，不影响另一项检查
+- 支持 SMTP SSL 和 STARTTLS
+- 支持源码运行，也兼容后续打包为可执行文件后的同目录配置
 
-## 项目结构
+## 项目文件
 
 ```text
 .
-├─ ip_monitor.py        # 主程序，包含监控、比较、通知等全部逻辑
+├─ ip_monitor.py        # 主程序
 ├─ config.example.ini   # 配置模板
-├─ config.ini           # 运行配置（由模板复制后按需修改）
-└─ last_ip.txt          # 上一次记录的公网 IP（运行后自动生成/更新）
+├─ config.ini           # 本地真实配置，需自行从模板复制生成
+├─ last_ipv4.txt        # 上次记录的公网 IPv4，运行后自动生成或更新
+└─ last_ipv6.txt        # 上次记录的公网 IPv6，运行后自动生成或更新
 ```
 
-## 运行环境
+## 环境要求
 
-- Python 3.8 及以上
-
-理论上只要 Python 标准库可用即可运行，因为脚本没有依赖第三方包。
+- Python 3.8 或更高版本
 
 ## 快速开始
 
-### 1. 生成配置文件
+### 1. 复制配置模板
 
-首次使用请先复制模板：
-
-```bash
-cp config.example.ini config.ini
-```
-
-Windows PowerShell 可使用：
+Windows PowerShell：
 
 ```powershell
 Copy-Item config.example.ini config.ini
 ```
 
-### 2. 配置 `config.ini`
+Linux / macOS：
 
-配置文件包含两个 section：
+```bash
+cp config.example.ini config.ini
+```
 
-- `[monitor]`：监控相关配置
-- `[email]`：邮件发送相关配置
+### 2. 修改 `config.ini`
 
-示例：
+至少需要配置邮件相关信息：
 
 ```ini
-[monitor]
-interval_minutes = 60
-ip_service_url = https://ifconfig.me/ip
-
 [email]
-to_addr = your_receiver@example.com
-from_addr = your_sender@example.com
-smtp_user = your_sender@example.com
-smtp_password = your_smtp_password
+to_addr = receiver@example.com
+from_addr = sender@example.com
+smtp_user = sender@example.com
+smtp_password = your_smtp_password_or_app_code
 smtp_host = smtp.example.com
 smtp_port = 465
 use_ssl = true
 ```
 
-### 3. 启动脚本
+如果默认 IP 查询接口在你的网络环境中不可用，可以修改：
+
+```ini
+[monitor]
+ipv4_url = https://api-ipv4.ip.sb/ip
+ipv6_url = https://api-ipv6.ip.sb/ip
+```
+
+建议选择返回纯文本 IP 地址的接口。
+
+### 3. 启动程序
 
 ```bash
 python ip_monitor.py
@@ -80,113 +82,99 @@ python ip_monitor.py
 
 ### `[monitor]`
 
-- `interval_minutes`
-  - 检查间隔，单位为分钟
-  - 程序启动时会校验，必须大于 0
-- `ip_service_url`
-  - 用于获取公网 IP 的 HTTP 地址
-  - 建议返回纯文本 IP，例如：
-    - `https://api.ipify.org`
-    - `https://ifconfig.me/ip`
+`interval_minutes`
+
+检查间隔，单位为分钟。必须大于 `0`。
+
+`ipv4_url`
+
+用于获取公网 IPv4 的接口地址。接口返回值必须是合法 IPv4，例如 `1.2.3.4`。
+
+`ipv6_url`
+
+用于获取公网 IPv6 的接口地址。接口返回值必须是合法 IPv6。
 
 ### `[email]`
 
-- `to_addr`
-  - 收件人邮箱
-- `from_addr`
-  - 发件人邮箱
-- `smtp_user`
-  - SMTP 登录账号
-- `smtp_password`
-  - SMTP 密码或授权码
-- `smtp_host`
-  - SMTP 服务器地址
-- `smtp_port`
-  - SMTP 端口
-  - 常见为 `465` 或 `587`
-- `use_ssl`
-  - 是否使用 SSL
-  - 通常 `465` 对应 `true`
-  - 如果使用 `587`，一般设为 `false`，程序会走 `STARTTLS`
+`to_addr`
 
-## 工作流程
+通知邮件收件人。
 
-程序执行流程如下：
+`from_addr`
 
-1. 启动 `ip_monitor.py`
-2. 初始化日志输出
-3. 读取 `config.ini`
-4. 校验轮询间隔是否合法
-5. 进入无限循环
-6. 请求 `ip_service_url` 获取当前公网 IP
-7. 读取 `last_ip.txt` 中保存的历史 IP
-8. 比较当前 IP 和历史 IP
-9. 若首次运行，则只保存 IP，不发邮件
-10. 若 IP 发生变化，则发送通知邮件并更新 `last_ip.txt`
-11. 若 IP 未变化，则记录日志并等待下一轮
+通知邮件发件人地址。
 
-## 代码结构说明
+`smtp_user`
 
-`ip_monitor.py` 中的主要函数：
+SMTP 登录账号。
 
-- `load_config(config_path)`
-  - 加载并校验配置文件
-- `setup_logging()`
-  - 初始化日志格式和输出
-- `get_public_ip(ip_service_url, timeout=10)`
-  - 从公网接口获取当前 IP
-- `read_last_ip(file_path)`
-  - 读取上次记录的 IP
-- `save_last_ip(file_path, ip)`
-  - 保存当前 IP
-- `send_email(...)`
-  - 通过 SMTP 发送通知邮件
-- `check_and_notify(config)`
-  - 执行一次完整的“检查并通知”流程
-- `main()`
-  - 程序入口，负责循环调度
+`smtp_password`
 
-## 日志与状态文件
+SMTP 登录密码或邮箱服务商提供的授权码。
 
-- 日志默认输出到标准输出
-- `last_ip.txt` 用于保存最近一次成功记录的公网 IP
+`smtp_host`
 
-首次运行时，如果 `last_ip.txt` 不存在，程序会自动创建并写入当前 IP。
-此外，`config.ini` 和 `last_ip.txt` 都按程序所在目录解析（源码运行与打包后运行都一致）。
+SMTP 服务器地址。
+
+`smtp_port`
+
+SMTP 端口。常见取值为 `465` 或 `587`。
+
+`use_ssl`
+
+是否使用 SMTP SSL。
+
+- `true`：使用 `SMTP_SSL`，通常搭配 `465`
+- `false`：使用普通 SMTP 连接后执行 `STARTTLS`，通常搭配 `587`
+
+## 运行逻辑
+
+1. 程序启动后读取同目录下的 `config.ini`
+2. 校验 `[monitor]` 和 `[email]` 配置段是否存在
+3. 按配置分别请求 `ipv4_url` 和 `ipv6_url`
+4. 校验接口返回值是否为对应版本的合法 IP 地址
+5. 读取 `last_ipv4.txt` 和 `last_ipv6.txt`
+6. 首次运行时只写入当前地址，不发送邮件
+7. 后续运行时，如果 IPv4 或 IPv6 任一地址变化，则发送邮件
+8. 邮件发送成功后更新对应状态文件
+9. 等待 `interval_minutes` 后进入下一轮检查
+
+## 状态文件
+
+程序会在 `ip_monitor.py` 所在目录读写状态文件：
+
+- `last_ipv4.txt`
+- `last_ipv6.txt`
+
+如果程序被打包成可执行文件，则配置文件和状态文件会按可执行文件所在目录解析。
 
 ## 异常处理
 
-主循环中对常见异常做了捕获，避免程序因临时错误直接退出：
-
-- 获取公网 IP 失败：捕获 `URLError`、`HTTPError`
-- SMTP 发送失败：捕获 `smtplib.SMTPException`
-- 其他异常：统一记录堆栈日志
-
-如果启动阶段就出现严重错误，例如配置文件缺失或格式不合法，程序会记录错误并退出。
-
-## 部署说明
-
-脚本通过下面的逻辑计算运行目录：
-
-- 普通脚本运行时使用当前文件路径
-- 若程序被打包为可执行文件，则优先使用 `sys.executable`
-
-这意味着 `config.ini` 和 `last_ip.txt` 默认按“与程序放在同一目录”来查找，便于后续打包部署。
+- IPv4 获取失败：记录警告，继续尝试 IPv6
+- IPv6 获取失败：记录警告，继续处理 IPv4
+- IPv4 和 IPv6 都获取失败：跳过本轮检查
+- 邮件发送失败：记录错误，等待下一轮重试
+- 配置文件缺失或配置不合法：启动失败并退出
 
 ## 安全注意事项
 
-- 不建议把真实邮箱密码或 SMTP 授权码直接提交到版本库
-- 更推荐把敏感信息改为环境变量或部署时注入
-- `last_ip.txt` 仅保存最近一次 IP，不适合作为审计日志
+- 不要把真实 `config.ini` 提交到版本库
+- 不要在公开仓库中暴露邮箱密码或 SMTP 授权码
+- `last_ipv4.txt` 和 `last_ipv6.txt` 只是当前状态记录，不是完整变更审计日志
 
-## 可改进方向
+## 常见问题
 
-- 增加命令行参数支持
-- 增加日志文件输出
-- 增加多收件人支持
-- 增加失败重试机制
-- 增加历史 IP 变更记录
-- 增加 systemd / Windows 服务化部署说明
+### 为什么首次运行不发邮件？
+
+首次运行没有历史地址可对比，因此程序只保存当前 IPv4/IPv6，避免发送没有实际变化意义的通知。
+
+### 没有 IPv6 会怎样？
+
+如果当前网络没有可用 IPv6，IPv6 获取会失败或返回非法值。程序会记录警告，但仍可继续监控 IPv4。
+
+### 可以只监控 IPv4 吗？
+
+当前程序会同时尝试 IPv4 和 IPv6。没有 IPv6 的环境可以保留 `ipv6_url` 默认值，程序会在 IPv6 获取失败时继续处理 IPv4。
 
 ## 许可证
 
